@@ -10,7 +10,7 @@ from citibike_data_platform.ingestion.s3_writer import (
 )
 
 
-BUCKET_NAME = "bike-s3-bucket-963910217446-ca-central-1-an"
+BUCKET_NAME = "tombucket2026"
 
 
 def ingest_station_information() -> None:
