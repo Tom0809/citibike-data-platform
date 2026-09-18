@@ -1,0 +1,12 @@
+bundle:
+  name: citibike-data-platform
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-d1dd759d-3605.cloud.databricks.com
