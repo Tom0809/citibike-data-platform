@@ -4,7 +4,9 @@ from pyspark.sql.functions import (
     trim,
     from_unixtime,
     current_timestamp,
+    regexp_replace,
     row_number,
+    round,
 )
 from pyspark.sql.window import Window
 
@@ -50,13 +52,24 @@ df_info_clean = (
         "last_updated",
     )
 
-    # Light text cleaning
+    # Clean station address
     .withColumn(
         "name",
-        trim(col("name"))
+        regexp_replace(
+            trim(col("name")),
+            r"\b([NSEW])\s+(\d+)\b",
+            "$1$2"
+        )
     )
 
-    # Keep latest information record for each station
+    # Rename to clearer business meaning
+    .withColumnRenamed("name", "address")
+
+    # Keep reasonable coordinate precision
+    .withColumn("lat", round(col("lat"), 6))
+    .withColumn("lon", round(col("lon"), 6))
+
+    # Keep latest station information
     .withColumn(
         "_row_num",
         row_number().over(info_window)
@@ -149,5 +162,6 @@ df_silver = (
     df_silver.write
     .format("delta")
     .mode("overwrite")
+    .option("overwriteSchema", "true")
     .saveAsTable(TARGET_TABLE)
 )
