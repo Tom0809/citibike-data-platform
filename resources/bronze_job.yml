@@ -19,6 +19,10 @@ resources:
           spark_python_task:
             python_file: ../src/citibike_data_platform/silver/stations.py
           environment_key: default
+        - task_key: bronze_trips
+          spark_python_task:
+            python_file: ../src/citibike_data_platform/bronze/trips.py
+          environment_key: default
 
       environments:
         - environment_key: default
