@@ -1,4 +1,5 @@
 from pyspark.sql import SparkSession
+
 from pyspark.sql.functions import (
     col,
     trim,
@@ -8,7 +9,9 @@ from pyspark.sql.functions import (
     row_number,
     round,
 )
+
 from pyspark.sql.window import Window
+from delta.tables import DeltaTable
 
 
 spark = SparkSession.builder.getOrCreate()
@@ -29,19 +32,23 @@ df_status = spark.table(STATUS_TABLE)
 
 
 # ============================================================
-# 2. Station information
+# 2. Clean Station Information
+#    Keep the latest information record for each station
 # ============================================================
 
-# If Bronze later contains multiple versions of the same station,
-# keep the most recently updated one.
 info_window = (
     Window
     .partitionBy("station_id")
-    .orderBy(col("last_updated").desc())
+    .orderBy(
+        col("last_updated").desc(),
+        col("_source_file").desc()
+    )
 )
+
 
 df_info_clean = (
     df_info
+
     .select(
         "station_id",
         "name",
@@ -49,54 +56,105 @@ df_info_clean = (
         "lon",
         "capacity",
         "region_id",
+        "is_charging",
         "last_updated",
+        "_source_file",
     )
 
-    # Clean station address
+    # Remove leading/trailing whitespace
+    .withColumn(
+        "name",
+        trim(col("name"))
+    )
+
+    # Example:
+    # "W 42" -> "W42"
     .withColumn(
         "name",
         regexp_replace(
-            trim(col("name")),
+            col("name"),
             r"\b([NSEW])\s+(\d+)\b",
             "$1$2"
         )
     )
 
-    # Rename to clearer business meaning
-    .withColumnRenamed("name", "address")
+    # Clearer business name
+    .withColumnRenamed(
+        "name",
+        "address"
+    )
 
-    # Keep reasonable coordinate precision
-    .withColumn("lat", round(col("lat"), 6))
-    .withColumn("lon", round(col("lon"), 6))
+    # Coordinate precision
+    .withColumn(
+        "lat",
+        round(col("lat"), 6)
+    )
 
-    # Keep latest station information
+    .withColumn(
+        "lon",
+        round(col("lon"), 6)
+    )
+
+    # Make sure is_charging is boolean
+    .withColumn(
+        "is_charging",
+        col("is_charging").cast("boolean")
+    )
+
+    # Rank records inside each station_id
     .withColumn(
         "_row_num",
         row_number().over(info_window)
     )
-    .filter(col("_row_num") == 1)
-    .drop("_row_num")
 
+    # Keep only the newest record
+    .filter(
+        col("_row_num") == 1
+    )
+
+    .drop(
+        "_row_num"
+    )
+
+    # Convert Unix timestamp -> Spark timestamp
+    .withColumn(
+        "information_last_updated_at",
+        from_unixtime(
+            col("last_updated")
+        ).cast("timestamp")
+    )
+
+    .drop(
+        "last_updated"
+    )
+
+    # Keep lineage back to Bronze / S3
     .withColumnRenamed(
-        "last_updated",
-        "information_last_updated"
+        "_source_file",
+        "information_source_file"
     )
 )
 
 
 # ============================================================
-# 3. Station status
+# 3. Clean Station Status
+#    Keep the latest status record for each station
 # ============================================================
 
-# Keep the most recent status record for each station.
 status_window = (
     Window
     .partitionBy("station_id")
-    .orderBy(col("last_reported").desc())
+    .orderBy(
+        col("last_reported").desc(),
+        col("last_updated").desc(),
+        col("_source_file").desc()
+    )
 )
+
 
 df_status_clean = (
     df_status
+
     .select(
         "station_id",
         "num_bikes_available",
@@ -111,42 +169,69 @@ df_status_clean = (
         "is_returning",
         "last_reported",
         "last_updated",
+        "_source_file",
     )
 
-    # Keep latest status record for each station
+    # Rank status rows inside each station_id
     .withColumn(
         "_row_num",
         row_number().over(status_window)
     )
-    .filter(col("_row_num") == 1)
-    .drop("_row_num")
 
-    # Convert Unix timestamp to Spark timestamp
-    .withColumn(
-        "last_reported_at",
-        from_unixtime(col("last_reported")).cast("timestamp")
+    # Keep newest status
+    .filter(
+        col("_row_num") == 1
     )
 
-    .drop("last_reported")
+    .drop(
+        "_row_num"
+    )
 
+    # Convert last_reported Unix timestamp -> timestamp
+    .withColumn(
+        "last_reported_at",
+        from_unixtime(
+            col("last_reported")
+        ).cast("timestamp")
+    )
+
+    .drop(
+        "last_reported"
+    )
+
+    # Convert snapshot last_updated -> timestamp
+    .withColumn(
+        "status_last_updated_at",
+        from_unixtime(
+            col("last_updated")
+        ).cast("timestamp")
+    )
+
+    .drop(
+        "last_updated"
+    )
+
+    # Keep lineage back to Bronze / S3
     .withColumnRenamed(
-        "last_updated",
-        "status_last_updated"
+        "_source_file",
+        "status_source_file"
     )
 )
 
 
 # ============================================================
-# 4. Join station information + status
+# 4. Join latest Information + latest Status
 # ============================================================
 
 df_silver = (
     df_info_clean
+
     .join(
         df_status_clean,
         on="station_id",
         how="left"
     )
+
     .withColumn(
         "_silver_updated_at",
         current_timestamp()
@@ -155,13 +240,44 @@ df_silver = (
 
 
 # ============================================================
-# 5. Write Silver Delta table
+# 5. Initial Load OR Merge into Silver
 # ============================================================
 
-(
-    df_silver.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(TARGET_TABLE)
-)
+if not spark.catalog.tableExists(TARGET_TABLE):
+
+    # First run:
+    # Silver table does not exist yet.
+    (
+        df_silver.write
+        .format("delta")
+        .mode("overwrite")
+        .saveAsTable(TARGET_TABLE)
+    )
+
+else:
+
+    # Silver already exists.
+    # Load it as a DeltaTable so we can MERGE into it.
+    silver_table = DeltaTable.forName(
+        spark,
+        TARGET_TABLE
+    )
+
+    (
+        silver_table
+        .alias("target")
+
+        .merge(
+            df_silver.alias("source"),
+            "target.station_id = source.station_id"
+        )
+
+        # Same station_id -> update existing Silver row
+        .whenMatchedUpdateAll()
+
+        # New station_id -> insert new Silver row
+        .whenNotMatchedInsertAll()
+
+        # Execute the MERGE
+        .execute()
+    )
