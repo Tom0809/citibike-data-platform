@@ -1,0 +1,8 @@
+sources:
+  - name: silver
+    catalog: citibike_dev
+    schema: silver
+
+    tables:
+      - name: trips
+      - name: stations

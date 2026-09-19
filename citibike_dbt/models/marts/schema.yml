@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: hourly_trip_demand
+    description: >
+      Hourly Citi Bike trip demand aggregated by date,
+      rider type, and bike type for historical demand analysis.
+
+    columns:
+      - name: ride_date
+        description: Calendar date when the trip started.
+        data_tests:
+          - not_null
+
+      - name: ride_hour
+        description: Hour of day from 0 to 23 when the trip started.
+        data_tests:
+          - not_null
+
+      - name: member_casual
+        description: Rider membership segment.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['member', 'casual']
+
+      - name: rideable_type
+        description: Type of bicycle used for the trip.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['electric_bike', 'classic_bike']
+
+      - name: total_trips
+        description: Number of trips in the hourly segment.
+        data_tests:
+          - not_null
+
+      - name: avg_ride_duration_minutes
+        description: Average ride duration in minutes for the segment.
+        data_tests:
+          - not_null
