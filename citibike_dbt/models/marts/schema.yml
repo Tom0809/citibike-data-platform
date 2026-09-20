@@ -89,7 +89,7 @@ models:
           while negative values indicate net outflow.
         data_tests:
           - not_null
-          
+
   - name: station_live_health
     description: >
       Current Citi Bike station service health based on bike availability,
@@ -121,5 +121,51 @@ models:
           - not_null
 
       - name: num_docks_available
+        data_tests:
+          - not_null
+
+  - name: station_rebalancing_priority
+    description: >
+      Actionable station-level priority queue for Citi Bike operations,
+      identifying stations requiring bike rebalancing or investigation
+      based on current service availability.
+
+    columns:
+      - name: priority_rank
+        description: Operational priority ranking, where 1 is the highest priority.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: station_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: health_status
+        data_tests:
+          - not_null
+
+      - name: priority_level
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - CRITICAL
+                  - HIGH
+                  - MEDIUM
+
+      - name: recommended_action
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - ADD_BIKES
+                  - REMOVE_BIKES
+                  - INVESTIGATE
+
+      - name: priority_score
         data_tests:
           - not_null
