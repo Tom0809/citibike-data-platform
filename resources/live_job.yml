@@ -1,0 +1,65 @@
+resources:
+  jobs:
+    citibike_live_pipeline_job:
+      name: citibike-live-pipeline-dev
+
+      tasks:
+        # ====================================================
+        # Bronze - Live station status
+        # ====================================================
+        - task_key: bronze_station_status
+          spark_python_task:
+            python_file: ../src/citibike_data_platform/bronze/station_status.py
+          environment_key: default
+
+        # ====================================================
+        # Bronze - Live station information
+        # ====================================================
+        - task_key: bronze_station_information
+          spark_python_task:
+            python_file: ../src/citibike_data_platform/bronze/station_information.py
+          environment_key: default
+
+        # ====================================================
+        # Silver - Current station state
+        # ====================================================
+        - task_key: silver_stations
+          depends_on:
+            - task_key: bronze_station_status
+            - task_key: bronze_station_information
+
+          spark_python_task:
+            python_file: ../src/citibike_data_platform/silver/stations.py
+
+          environment_key: default
+
+        # ====================================================
+        # Gold - Live operational analytics
+        # ====================================================
+        - task_key: dbt_live_gold
+          depends_on:
+            - task_key: silver_stations
+
+          dbt_task:
+            source: WORKSPACE
+            project_directory: ${workspace.file_path}/citibike_dbt
+
+            commands:
+              - "dbt build --select +station_rebalancing_priority"
+
+            warehouse_id: e282982f1c77a797
+            catalog: citibike_dev
+            schema: gold
+
+          environment_key: dbt
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+
+        - environment_key: dbt
+          spec:
+            environment_version: "2"
+            dependencies:
+              - dbt-databricks==1.12.5
