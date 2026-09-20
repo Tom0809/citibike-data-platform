@@ -89,3 +89,37 @@ models:
           while negative values indicate net outflow.
         data_tests:
           - not_null
+          
+  - name: station_live_health
+    description: >
+      Current Citi Bike station service health based on bike availability,
+      dock availability, disabled assets, and operating status.
+
+    columns:
+      - name: station_id
+        description: Unique station identifier.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: health_status
+        description: Current operational health classification of the station.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - HEALTHY
+                  - LOW_BIKES
+                  - LOW_DOCKS
+                  - NO_BIKES
+                  - NO_DOCKS
+                  - OUT_OF_SERVICE
+
+      - name: num_bikes_available
+        data_tests:
+          - not_null
+
+      - name: num_docks_available
+        data_tests:
+          - not_null
