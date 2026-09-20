@@ -42,3 +42,50 @@ models:
         description: Average ride duration in minutes for the segment.
         data_tests:
           - not_null
+
+  - name: station_monthly_flow
+    description: >
+      Monthly station-level trip flow metrics showing departures,
+      arrivals, total station activity, and net bike flow.
+
+    columns:
+      - name: station_month_key
+        description: Unique identifier for a station within a year and month.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: ride_year
+        data_tests:
+          - not_null
+
+      - name: ride_month
+        data_tests:
+          - not_null
+
+      - name: station_key
+        description: Canonical station identifier used for analytical aggregation historical station IDs may be mapped to a shared canonical key.
+        data_tests:
+          - not_null
+
+      - name: departures
+        description: Number of trips starting from the station during the month.
+        data_tests:
+          - not_null
+
+      - name: arrivals
+        description: Number of trips ending at the station during the month.
+        data_tests:
+          - not_null
+
+      - name: total_station_activity
+        description: Total departures plus arrivals for the station.
+        data_tests:
+          - not_null
+
+      - name: net_flow
+        description: >
+          Arrivals minus departures. Positive values indicate net inflow,
+          while negative values indicate net outflow.
+        data_tests:
+          - not_null

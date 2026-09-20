@@ -14,7 +14,45 @@ spark = SparkSession.builder.getOrCreate()
 SOURCE_TABLE = "citibike_dev.bronze.trips"
 TARGET_TABLE = "citibike_dev.silver.trips"
 
-CHECKPOINT_PATH = "s3://tombucket2026/_checkpoints/silver/trips"
+# New checkpoint for rebuilding existing Bronze data
+CHECKPOINT_PATH = "s3://tombucket2026/_checkpoints/silver/trips_v3"
+
+
+# ============================================================
+# Helper: normalize station IDs
+# ============================================================
+
+def normalize_station_id(column_name):
+    station_id = trim(col(column_name))
+
+    # Remove trailing underscores
+    # 5308.04_  -> 5308.04
+    # 5303.06__ -> 5303.06
+    station_id = regexp_replace(
+        station_id,
+        r"_+$",
+        ""
+    )
+
+    # Remove unnecessary trailing zeros after decimal
+    # 5997.10  -> 5997.1
+    # 5997.100 -> 5997.1
+    # 5308.040 -> 5308.04
+    station_id = regexp_replace(
+        station_id,
+        r"(\.\d*?[1-9])0+$",
+        "$1"
+    )
+
+    # Decimal part contains only zeros
+    # 5997.00 -> 5997
+    station_id = regexp_replace(
+        station_id,
+        r"\.0+$",
+        ""
+    )
+
+    return station_id
 
 
 # ============================================================
@@ -34,10 +72,18 @@ df_bronze = (
 df_silver = (
     df_bronze
 
-    # IDs
+    # Ride ID
     .withColumn("ride_id", trim(col("ride_id")))
-    .withColumn("start_station_id", trim(col("start_station_id")))
-    .withColumn("end_station_id", trim(col("end_station_id")))
+
+    # Station IDs
+    .withColumn(
+        "start_station_id",
+        normalize_station_id("start_station_id")
+    )
+    .withColumn(
+        "end_station_id",
+        normalize_station_id("end_station_id")
+    )
 
     # Categories
     .withColumn("rideable_type", lower(trim(col("rideable_type"))))
@@ -47,7 +93,7 @@ df_silver = (
     .withColumn("started_at", col("started_at").cast("timestamp"))
     .withColumn("ended_at", col("ended_at").cast("timestamp"))
 
-    # Ride duration in minutes
+    # Ride duration
     .withColumn(
         "ride_duration_minutes",
         round(
@@ -59,7 +105,7 @@ df_silver = (
         )
     )
 
-    # Clean start station name
+    # Start station name
     .withColumn(
         "start_station_name",
         regexp_replace(
@@ -73,7 +119,7 @@ df_silver = (
         )
     )
 
-    # Clean end station name
+    # End station name
     .withColumn(
         "end_station_name",
         regexp_replace(
