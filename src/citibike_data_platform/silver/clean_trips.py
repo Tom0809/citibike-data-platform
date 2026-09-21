@@ -1,3 +1,5 @@
+import argparse
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
@@ -9,13 +11,53 @@ from pyspark.sql.functions import (
 )
 
 
+# ============================================================
+# Arguments
+# ============================================================
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--catalog",
+    required=True,
+    help="Target Unity Catalog, e.g. citibike_dev or citibike_prod",
+)
+
+args = parser.parse_args()
+
+CATALOG = args.catalog
+
+
+# ============================================================
+# Spark
+# ============================================================
+
 spark = SparkSession.builder.getOrCreate()
 
-SOURCE_TABLE = "citibike_dev.bronze.trips"
-TARGET_TABLE = "citibike_dev.silver.trips"
 
-# New checkpoint for rebuilding existing Bronze data
-CHECKPOINT_PATH = "s3://tombucket2026/_checkpoints/silver/trips_v3"
+# ============================================================
+# Environment
+# ============================================================
+#
+# citibike_dev  -> dev
+# citibike_prod -> prod
+#
+
+ENVIRONMENT = CATALOG.removeprefix("citibike_")
+
+
+# ============================================================
+# Config
+# ============================================================
+
+SOURCE_TABLE = f"{CATALOG}.bronze.trips"
+
+TARGET_TABLE = f"{CATALOG}.silver.trips"
+
+CHECKPOINT_PATH = (
+    f"s3://tombucket2026/_checkpoints/"
+    f"{ENVIRONMENT}/silver/trips_v3"
+)
 
 
 # ============================================================
@@ -23,33 +65,37 @@ CHECKPOINT_PATH = "s3://tombucket2026/_checkpoints/silver/trips_v3"
 # ============================================================
 
 def normalize_station_id(column_name):
+
     station_id = trim(col(column_name))
 
     # Remove trailing underscores
-    # 5308.04_  -> 5308.04
-    # 5303.06__ -> 5303.06
+    #
+    # 5308.04_   -> 5308.04
+    # 5303.06__  -> 5303.06
     station_id = regexp_replace(
         station_id,
         r"_+$",
-        ""
+        "",
     )
 
     # Remove unnecessary trailing zeros after decimal
-    # 5997.10  -> 5997.1
-    # 5997.100 -> 5997.1
-    # 5308.040 -> 5308.04
+    #
+    # 5997.10   -> 5997.1
+    # 5997.100  -> 5997.1
+    # 5308.040  -> 5308.04
     station_id = regexp_replace(
         station_id,
         r"(\.\d*?[1-9])0+$",
-        "$1"
+        "$1",
     )
 
     # Decimal part contains only zeros
+    #
     # 5997.00 -> 5997
     station_id = regexp_replace(
         station_id,
         r"\.0+$",
-        ""
+        "",
     )
 
     return station_id
@@ -72,28 +118,56 @@ df_bronze = (
 df_silver = (
     df_bronze
 
+    # --------------------------------------------------------
     # Ride ID
-    .withColumn("ride_id", trim(col("ride_id")))
+    # --------------------------------------------------------
+    .withColumn(
+        "ride_id",
+        trim(col("ride_id")),
+    )
 
+    # --------------------------------------------------------
     # Station IDs
+    # --------------------------------------------------------
     .withColumn(
         "start_station_id",
-        normalize_station_id("start_station_id")
+        normalize_station_id("start_station_id"),
     )
+
     .withColumn(
         "end_station_id",
-        normalize_station_id("end_station_id")
+        normalize_station_id("end_station_id"),
     )
 
+    # --------------------------------------------------------
     # Categories
-    .withColumn("rideable_type", lower(trim(col("rideable_type"))))
-    .withColumn("member_casual", lower(trim(col("member_casual"))))
+    # --------------------------------------------------------
+    .withColumn(
+        "rideable_type",
+        lower(trim(col("rideable_type"))),
+    )
 
+    .withColumn(
+        "member_casual",
+        lower(trim(col("member_casual"))),
+    )
+
+    # --------------------------------------------------------
     # Timestamp types
-    .withColumn("started_at", col("started_at").cast("timestamp"))
-    .withColumn("ended_at", col("ended_at").cast("timestamp"))
+    # --------------------------------------------------------
+    .withColumn(
+        "started_at",
+        col("started_at").cast("timestamp"),
+    )
 
+    .withColumn(
+        "ended_at",
+        col("ended_at").cast("timestamp"),
+    )
+
+    # --------------------------------------------------------
     # Ride duration
+    # --------------------------------------------------------
     .withColumn(
         "ride_duration_minutes",
         round(
@@ -101,50 +175,85 @@ df_silver = (
                 col("ended_at").cast("long")
                 - col("started_at").cast("long")
             ) / 60.0,
-            2
-        )
+            2,
+        ),
     )
 
+    # --------------------------------------------------------
     # Start station name
+    # --------------------------------------------------------
     .withColumn(
         "start_station_name",
         regexp_replace(
             regexp_replace(
                 trim(col("start_station_name")),
                 r"\s+",
-                " "
+                " ",
             ),
             r"\b([NSEW])\s+(\d+)\b",
-            "$1$2"
-        )
+            "$1$2",
+        ),
     )
 
+    # --------------------------------------------------------
     # End station name
+    # --------------------------------------------------------
     .withColumn(
         "end_station_name",
         regexp_replace(
             regexp_replace(
                 trim(col("end_station_name")),
                 r"\s+",
-                " "
+                " ",
             ),
             r"\b([NSEW])\s+(\d+)\b",
-            "$1$2"
-        )
+            "$1$2",
+        ),
     )
 
+    # --------------------------------------------------------
     # Coordinates
-    .withColumn("start_lat", col("start_lat").cast("double"))
-    .withColumn("start_lng", col("start_lng").cast("double"))
-    .withColumn("end_lat", col("end_lat").cast("double"))
-    .withColumn("end_lng", col("end_lng").cast("double"))
+    # --------------------------------------------------------
+    .withColumn(
+        "start_lat",
+        col("start_lat").cast("double"),
+    )
 
+    .withColumn(
+        "start_lng",
+        col("start_lng").cast("double"),
+    )
+
+    .withColumn(
+        "end_lat",
+        col("end_lat").cast("double"),
+    )
+
+    .withColumn(
+        "end_lng",
+        col("end_lng").cast("double"),
+    )
+
+    # --------------------------------------------------------
     # Partition columns
-    .withColumn("year", col("year").cast("int"))
-    .withColumn("month", col("month").cast("int"))
+    # --------------------------------------------------------
+    .withColumn(
+        "year",
+        col("year").cast("int"),
+    )
 
+    .withColumn(
+        "month",
+        col("month").cast("int"),
+    )
+
+    # --------------------------------------------------------
     # Silver metadata
-    .withColumn("_silver_processed_at", current_timestamp())
+    # --------------------------------------------------------
+    .withColumn(
+        "_silver_processed_at",
+        current_timestamp(),
+    )
 )
 
 
@@ -156,9 +265,17 @@ silver_stream = (
     df_silver.writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", CHECKPOINT_PATH)
-    .trigger(availableNow=True)
-    .toTable(TARGET_TABLE)
+    .option(
+        "checkpointLocation",
+        CHECKPOINT_PATH,
+    )
+    .trigger(
+        availableNow=True
+    )
+    .toTable(
+        TARGET_TABLE
+    )
 )
+
 
 silver_stream.awaitTermination()

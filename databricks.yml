@@ -4,9 +4,31 @@ bundle:
 include:
   - resources/*.yml
 
+
+variables:
+  catalog:
+    description: Environment-specific catalog
+
+
 targets:
+
   dev:
     mode: development
     default: true
+
     workspace:
       host: https://dbc-d1dd759d-3605.cloud.databricks.com
+
+    variables:
+      catalog: citibike_dev
+
+
+  prod:
+    mode: production
+
+    workspace:
+      host: https://dbc-d1dd759d-3605.cloud.databricks.com
+      root_path: /Workspace/Users/uyssstom@gmail.com/.bundle/${bundle.name}/${bundle.target}
+
+    variables:
+      catalog: citibike_prod
