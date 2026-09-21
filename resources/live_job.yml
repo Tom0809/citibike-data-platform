@@ -3,27 +3,79 @@ resources:
     citibike_live_pipeline_job:
       name: citibike-live-pipeline-dev
 
+      # ====================================================
+      # Job-level operational settings
+      # ====================================================
+
+      # Prevent two copies of the same live pipeline
+      # from running at the same time.
+      max_concurrent_runs: 1
+
+      # Configure the schedule now, but keep it paused.
+      #
+      # IMPORTANT:
+      # The API -> S3 ingestion is not inside this Databricks Job yet.
+      # Later Airflow will ingest the snapshot first and then trigger
+      # this Databricks Job.
+      schedule:
+        quartz_cron_expression: "0 0 * * * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+
+      # Optional job-level failure notification.
+      # Add your real email later if you want:
+      #
+      # email_notifications:
+      #   on_failure:
+      #     - your_email@example.com
+      #
+      # notification_settings:
+      #   no_alert_for_skipped_runs: true
+      #   no_alert_for_canceled_runs: true
+
       tasks:
+
         # ====================================================
         # Bronze - Live station status
         # ====================================================
         - task_key: bronze_station_status
+
           spark_python_task:
             python_file: ../src/citibike_data_platform/bronze/station_status.py
+
           environment_key: default
+
+          # Retry transient failures
+          max_retries: 2
+          min_retry_interval_millis: 300000
+
+          # 15 minute timeout
+          timeout_seconds: 900
+          retry_on_timeout: true
+
 
         # ====================================================
         # Bronze - Live station information
         # ====================================================
         - task_key: bronze_station_information
+
           spark_python_task:
             python_file: ../src/citibike_data_platform/bronze/station_information.py
+
           environment_key: default
+
+          max_retries: 2
+          min_retry_interval_millis: 300000
+
+          timeout_seconds: 900
+          retry_on_timeout: true
+
 
         # ====================================================
         # Silver - Current station state
         # ====================================================
         - task_key: silver_stations
+
           depends_on:
             - task_key: bronze_station_status
             - task_key: bronze_station_information
@@ -33,10 +85,19 @@ resources:
 
           environment_key: default
 
+          max_retries: 2
+          min_retry_interval_millis: 300000
+
+          # Silver MERGE / transformation gets more time
+          timeout_seconds: 1800
+          retry_on_timeout: true
+
+
         # ====================================================
         # Gold - Live operational analytics
         # ====================================================
         - task_key: dbt_live_gold
+
           depends_on:
             - task_key: silver_stations
 
@@ -53,7 +114,20 @@ resources:
 
           environment_key: dbt
 
+          # dbt already manages dependencies/tests internally.
+          # One retry is enough here.
+          max_retries: 1
+          min_retry_interval_millis: 300000
+
+          timeout_seconds: 1800
+          retry_on_timeout: true
+
+
+      # ====================================================
+      # Serverless environments
+      # ====================================================
       environments:
+
         - environment_key: default
           spec:
             environment_version: "2"

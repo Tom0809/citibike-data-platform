@@ -3,19 +3,58 @@ resources:
     citibike_historical_pipeline_job:
       name: citibike-historical-pipeline-dev
 
+      # ====================================================
+      # Job-level operational settings
+      # ====================================================
+
+      # Do not allow overlapping historical pipeline runs
+      max_concurrent_runs: 1
+
+      # Historical trip data is monthly.
+      #
+      # Keep paused for now because monthly ingestion into S3
+      # is not automated yet.
+      schedule:
+        quartz_cron_expression: "0 0 6 5 * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+
+      # Optional failure notification later:
+      #
+      # email_notifications:
+      #   on_failure:
+      #     - your_email@example.com
+      #
+      # notification_settings:
+      #   no_alert_for_skipped_runs: true
+      #   no_alert_for_canceled_runs: true
+
       tasks:
+
         # ====================================================
         # Bronze - Historical trips
         # ====================================================
         - task_key: bronze_trips
+
           spark_python_task:
             python_file: ../src/citibike_data_platform/bronze/trips.py
+
           environment_key: default
+
+          # Transient storage / compute failures can be retried
+          max_retries: 2
+          min_retry_interval_millis: 600000
+
+          # Historical files are much larger than live snapshots
+          timeout_seconds: 3600
+          retry_on_timeout: true
+
 
         # ====================================================
         # Silver - Clean historical trips
         # ====================================================
         - task_key: silver_trips
+
           depends_on:
             - task_key: bronze_trips
 
@@ -24,10 +63,19 @@ resources:
 
           environment_key: default
 
+          max_retries: 2
+          min_retry_interval_millis: 600000
+
+          # Allow up to 2 hours for large monthly increments
+          timeout_seconds: 7200
+          retry_on_timeout: true
+
+
         # ====================================================
         # Gold - Historical analytics
         # ====================================================
         - task_key: dbt_historical_gold
+
           depends_on:
             - task_key: silver_trips
 
@@ -44,7 +92,19 @@ resources:
 
           environment_key: dbt
 
+          # dbt can retry once for transient warehouse issues
+          max_retries: 1
+          min_retry_interval_millis: 600000
+
+          timeout_seconds: 3600
+          retry_on_timeout: true
+
+
+      # ====================================================
+      # Serverless environments
+      # ====================================================
       environments:
+
         - environment_key: default
           spec:
             environment_version: "2"
