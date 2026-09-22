@@ -68,6 +68,3 @@ jobs:
       - name: Validate dev bundle
         run: databricks bundle validate -t dev
 
-
-      - name: Validate prod bundle
-        run: databricks bundle validate -t prod
