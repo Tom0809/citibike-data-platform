@@ -34,8 +34,5 @@ targets:
       catalog: citibike_prod
     
     permissions:
-    - user_name: uyssstom@gmail.com
-      level: CAN_MANAGE
-
     - service_principal_name: 7b3a98fb-f618-44da-aa05-f5f677c524c9
       level: CAN_MANAGE
