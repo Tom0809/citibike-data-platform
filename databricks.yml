@@ -32,7 +32,3 @@ targets:
 
     variables:
       catalog: citibike_prod
-    
-    permissions:
-    - service_principal_name: 7b3a98fb-f618-44da-aa05-f5f677c524c9
-      level: CAN_MANAGE
