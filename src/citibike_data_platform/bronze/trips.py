@@ -1,8 +1,42 @@
+import argparse
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp
 
 
+# ============================================================
+# Arguments
+# ============================================================
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--catalog",
+    required=True,
+    help="Target Unity Catalog, e.g. citibike_dev or citibike_prod",
+)
+
+args = parser.parse_args()
+
+CATALOG = args.catalog
+
+
+# ============================================================
+# Spark
+# ============================================================
+
 spark = SparkSession.builder.getOrCreate()
+
+
+# ============================================================
+# Environment
+# ============================================================
+#
+# citibike_dev  -> dev
+# citibike_prod -> prod
+#
+
+ENVIRONMENT = CATALOG.removeprefix("citibike_")
 
 
 # ============================================================
@@ -11,11 +45,17 @@ spark = SparkSession.builder.getOrCreate()
 
 SOURCE_PATH = "s3://tombucket2026/raw/trips/"
 
-SCHEMA_PATH = "s3://tombucket2026/_schemas/bronze/trips"
+SCHEMA_PATH = (
+    f"s3://tombucket2026/_schemas/"
+    f"{ENVIRONMENT}/bronze/trips"
+)
 
-CHECKPOINT_PATH = "s3://tombucket2026/_checkpoints/bronze/trips"
+CHECKPOINT_PATH = (
+    f"s3://tombucket2026/_checkpoints/"
+    f"{ENVIRONMENT}/bronze/trips"
+)
 
-TARGET_TABLE = "citibike_dev.bronze.trips"
+TARGET_TABLE = f"{CATALOG}.bronze.trips"
 
 
 # ============================================================
@@ -35,7 +75,7 @@ df_raw = (
     # Keep source-file lineage
     .withColumn(
         "_source_file",
-        col("_metadata.file_path")
+        col("_metadata.file_path"),
     )
 )
 
@@ -51,7 +91,7 @@ df_bronze = (
     df_raw
     .withColumn(
         "_ingested_at",
-        current_timestamp()
+        current_timestamp(),
     )
 )
 
@@ -66,7 +106,7 @@ bronze_stream = (
     .outputMode("append")
     .option(
         "checkpointLocation",
-        CHECKPOINT_PATH
+        CHECKPOINT_PATH,
     )
     .trigger(
         availableNow=True

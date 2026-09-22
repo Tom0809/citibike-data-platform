@@ -1,0 +1,82 @@
+name: Databricks CD
+
+# ============================================================
+# Trigger
+# ============================================================
+#
+# Only deploy when code reaches master.
+#
+on:
+  push:
+    branches:
+      - master
+
+  # Allows manual execution from GitHub Actions if needed
+  workflow_dispatch:
+
+
+# ============================================================
+# Permissions
+# ============================================================
+
+permissions:
+  contents: read
+  id-token: write
+
+
+# ============================================================
+# Jobs
+# ============================================================
+
+jobs:
+
+  deploy:
+
+    name: Deploy Databricks Production
+
+    runs-on: ubuntu-latest
+
+    # Must match:
+    # GitHub Environment = prod
+    # Databricks federation policy = environment:prod
+    environment: prod
+
+
+    # ========================================================
+    # Databricks authentication
+    # ========================================================
+
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+
+
+    # ========================================================
+    # CD steps
+    # ========================================================
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+
+      - name: Verify Databricks authentication
+        run: databricks current-user me
+
+
+      - name: Validate prod bundle
+        run: databricks bundle validate -t prod
+
+
+      - name: Plan prod deployment
+        run: databricks bundle plan -t prod
+
+
+      - name: Deploy prod bundle
+        run: databricks bundle deploy -t prod

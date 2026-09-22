@@ -1,5 +1,6 @@
-from pyspark.sql import SparkSession
+import argparse
 
+from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
     trim,
@@ -9,17 +10,54 @@ from pyspark.sql.functions import (
     row_number,
     round,
 )
-
 from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 
 
+# ============================================================
+# Arguments
+# ============================================================
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--catalog",
+    required=True,
+    help="Target Unity Catalog, e.g. citibike_dev or citibike_prod",
+)
+
+args = parser.parse_args()
+
+CATALOG = args.catalog
+
+
+# ============================================================
+# Spark
+# ============================================================
+
 spark = SparkSession.builder.getOrCreate()
 
 
-INFO_TABLE = "citibike_dev.bronze.station_information"
-STATUS_TABLE = "citibike_dev.bronze.station_status"
-TARGET_TABLE = "citibike_dev.silver.stations"
+# ============================================================
+# Tables
+# ============================================================
+#
+# dev:
+#   citibike_dev.bronze.station_information
+#   citibike_dev.bronze.station_status
+#   citibike_dev.silver.stations
+#
+# prod:
+#   citibike_prod.bronze.station_information
+#   citibike_prod.bronze.station_status
+#   citibike_prod.silver.stations
+#
+
+INFO_TABLE = f"{CATALOG}.bronze.station_information"
+
+STATUS_TABLE = f"{CATALOG}.bronze.station_status"
+
+TARGET_TABLE = f"{CATALOG}.silver.stations"
 
 
 # ============================================================
@@ -33,7 +71,8 @@ df_status = spark.table(STATUS_TABLE)
 
 # ============================================================
 # 2. Clean Station Information
-#    Keep the latest information record for each station
+#
+# Keep the latest information record for each station
 # ============================================================
 
 info_window = (
@@ -41,7 +80,7 @@ info_window = (
     .partitionBy("station_id")
     .orderBy(
         col("last_updated").desc(),
-        col("_source_file").desc()
+        col("_source_file").desc(),
     )
 )
 
@@ -64,7 +103,7 @@ df_info_clean = (
     # Remove leading/trailing whitespace
     .withColumn(
         "name",
-        trim(col("name"))
+        trim(col("name")),
     )
 
     # Example:
@@ -74,46 +113,46 @@ df_info_clean = (
         regexp_replace(
             col("name"),
             r"\b([NSEW])\s+(\d+)\b",
-            "$1$2"
-        )
+            "$1$2",
+        ),
     )
 
     # Clearer business name
     .withColumnRenamed(
         "name",
-        "address"
+        "address",
     )
 
     # Coordinate precision
     .withColumn(
         "lat",
-        round(col("lat"), 6)
+        round(col("lat"), 6),
     )
 
     .withColumn(
         "lon",
-        round(col("lon"), 6)
+        round(col("lon"), 6),
     )
 
     # Make sure is_charging is boolean
     .withColumn(
         "is_charging",
-        col("is_charging").cast("boolean")
+        col("is_charging").cast("boolean"),
     )
 
     # Rank records inside each station_id
     .withColumn(
         "_row_num",
-        row_number().over(info_window)
+        row_number().over(info_window),
     )
 
-    # Keep only the newest record
+    # Keep only newest information record
     .filter(
-        col("_row_num") == 1
+        col("_row_num") == 1,
     )
 
     .drop(
-        "_row_num"
+        "_row_num",
     )
 
     # Convert Unix timestamp -> Spark timestamp
@@ -121,24 +160,25 @@ df_info_clean = (
         "information_last_updated_at",
         from_unixtime(
             col("last_updated")
-        ).cast("timestamp")
+        ).cast("timestamp"),
     )
 
     .drop(
-        "last_updated"
+        "last_updated",
     )
 
     # Keep lineage back to Bronze / S3
     .withColumnRenamed(
         "_source_file",
-        "information_source_file"
+        "information_source_file",
     )
 )
 
 
 # ============================================================
 # 3. Clean Station Status
-#    Keep the latest status record for each station
+#
+# Keep the latest status record for each station
 # ============================================================
 
 status_window = (
@@ -147,7 +187,7 @@ status_window = (
     .orderBy(
         col("last_reported").desc(),
         col("last_updated").desc(),
-        col("_source_file").desc()
+        col("_source_file").desc(),
     )
 )
 
@@ -175,16 +215,16 @@ df_status_clean = (
     # Rank status rows inside each station_id
     .withColumn(
         "_row_num",
-        row_number().over(status_window)
+        row_number().over(status_window),
     )
 
-    # Keep newest status
+    # Keep newest status record
     .filter(
-        col("_row_num") == 1
+        col("_row_num") == 1,
     )
 
     .drop(
-        "_row_num"
+        "_row_num",
     )
 
     # Convert last_reported Unix timestamp -> timestamp
@@ -192,11 +232,11 @@ df_status_clean = (
         "last_reported_at",
         from_unixtime(
             col("last_reported")
-        ).cast("timestamp")
+        ).cast("timestamp"),
     )
 
     .drop(
-        "last_reported"
+        "last_reported",
     )
 
     # Convert snapshot last_updated -> timestamp
@@ -204,17 +244,17 @@ df_status_clean = (
         "status_last_updated_at",
         from_unixtime(
             col("last_updated")
-        ).cast("timestamp")
+        ).cast("timestamp"),
     )
 
     .drop(
-        "last_updated"
+        "last_updated",
     )
 
     # Keep lineage back to Bronze / S3
     .withColumnRenamed(
         "_source_file",
-        "status_source_file"
+        "status_source_file",
     )
 )
 
@@ -229,12 +269,12 @@ df_silver = (
     .join(
         df_status_clean,
         on="station_id",
-        how="left"
+        how="left",
     )
 
     .withColumn(
         "_silver_updated_at",
-        current_timestamp()
+        current_timestamp(),
     )
 )
 
@@ -245,8 +285,13 @@ df_silver = (
 
 if not spark.catalog.tableExists(TARGET_TABLE):
 
-    # First run:
+    # --------------------------------------------------------
+    # First run
+    #
     # Silver table does not exist yet.
+    # Create a new Delta table.
+    # --------------------------------------------------------
+
     (
         df_silver.write
         .format("delta")
@@ -256,11 +301,16 @@ if not spark.catalog.tableExists(TARGET_TABLE):
 
 else:
 
-    # Silver already exists.
-    # Load it as a DeltaTable so we can MERGE into it.
+    # --------------------------------------------------------
+    # Incremental run
+    #
+    # Silver table already exists.
+    # MERGE by station_id.
+    # --------------------------------------------------------
+
     silver_table = DeltaTable.forName(
         spark,
-        TARGET_TABLE
+        TARGET_TABLE,
     )
 
     (
@@ -269,15 +319,17 @@ else:
 
         .merge(
             df_silver.alias("source"),
-            "target.station_id = source.station_id"
+            "target.station_id = source.station_id",
         )
 
-        # Same station_id -> update existing Silver row
+        # Same station_id:
+        # update existing Silver row
         .whenMatchedUpdateAll()
 
-        # New station_id -> insert new Silver row
+        # New station_id:
+        # insert new Silver row
         .whenNotMatchedInsertAll()
 
-        # Execute the MERGE
+        # Execute MERGE
         .execute()
     )

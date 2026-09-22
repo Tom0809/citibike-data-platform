@@ -1,0 +1,70 @@
+name: Databricks CI
+
+# ============================================================
+# Trigger
+# ============================================================
+
+on:
+  pull_request:
+    branches:
+      - master
+
+
+# ============================================================
+# Permissions
+# ============================================================
+
+permissions:
+  contents: read
+  id-token: write
+
+
+# ============================================================
+# Jobs
+# ============================================================
+
+jobs:
+
+  validate:
+
+    name: Validate Databricks Bundle
+
+    runs-on: ubuntu-latest
+
+    environment: ci
+
+    # Only authenticate PRs coming from this repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+
+    # ========================================================
+    # Databricks authentication
+    # ========================================================
+
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+
+
+    # ========================================================
+    # CI steps
+    # ========================================================
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+
+      - name: Verify Databricks authentication
+        run: databricks current-user me
+
+
+      - name: Validate dev bundle
+        run: databricks bundle validate -t dev
+
