@@ -13,33 +13,36 @@
 ```mermaid
 flowchart TB
 
-    subgraph CONTROL["Control And Orchestration"]
-        AF["🌬️ Apache Airflow<br/>Schedule · Dependencies · Retry · Trigger"]
-        CI["🔄 GitHub Actions<br/>CI/CD"]
+    subgraph CONTROL["⚙️ Orchestration & Deployment"]
+        AF["🌬️ Apache Airflow<br/>Live Ingestion · Scheduling · Dependencies"]
+        GHA["🔄 GitHub Actions"]
+        DAB["📦 Databricks Asset Bundles<br/>Dev / Prod"]
+        GHA -->|"CI/CD"| DAB
     end
 
-    subgraph DATA["Data Platform"]
-        API["🚲 Citi Bike GBFS API"]
-        S3[("☁️ AWS S3<br/>Raw Data Lake")]
-        AL["⚡ Databricks Auto Loader"]
-        B[("🥉 Bronze<br/>Delta Lake")]
-        S[("🥈 Silver<br/>Clean · Deduplicate · MERGE")]
+    subgraph SOURCES["📥 Sources"]
+        LIVE["🚲 Citi Bike<br/>Live GBFS API"]
+        HIST["📁 Historical<br/>Monthly Trip Data"]
+    end
+
+    subgraph PLATFORM["☁️ Lakehouse Platform"]
+        direction LR
+        S3[("AWS S3<br/>Raw Data Lake")]
+        AUTO["⚡ Databricks<br/>Auto Loader"]
+        BRONZE[("🥉 Bronze<br/>Delta")]
+        SILVER[("🥈 Silver<br/>Clean + MERGE")]
         DBT["🔧 dbt"]
-        G[("🥇 Gold<br/>Analytics Models")]
+        GOLD[("🥇 Gold<br/>Analytics")]
+
+        S3 --> AUTO --> BRONZE --> SILVER --> DBT --> GOLD
     end
 
-    AF -->|"Fetch live snapshots"| API
-    API -->|"JSON response"| AF
-    AF -->|"Write timestamped raw files"| S3
+    LIVE --> S3
+    HIST --> S3
 
-    S3 --> AL
-    AL --> B
-    B --> S
-    S --> DBT
-    DBT --> G
-
-    AF -->|"Trigger Databricks Job"| AL
-    CI -->|"Validate & Deploy<br/>Databricks Asset Bundles"| AL
+    AF -. "Ingest live snapshots" .-> LIVE
+    AF -. "Trigger processing" .-> AUTO
+    DAB -. "Deploy Jobs & code" .-> AUTO
 ```
 
 ### What the pipeline does
