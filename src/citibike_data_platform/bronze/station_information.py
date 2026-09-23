@@ -115,6 +115,7 @@ bronze_stream = (
         "checkpointLocation",
         CHECKPOINT_PATH,
     )
+    .option("mergeSchema", "true")
     .trigger(availableNow=True)
     .toTable(TARGET_TABLE)
 )
