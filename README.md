@@ -13,7 +13,7 @@
 ```mermaid
 flowchart TB
 
-    subgraph CONTROL["Control & Orchestration"]
+    subgraph CONTROL["Control And Orchestration"]
         AF["🌬️ Apache Airflow<br/>Schedule · Dependencies · Retry · Trigger"]
         CI["🔄 GitHub Actions<br/>CI/CD"]
     end
