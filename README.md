@@ -3,7 +3,7 @@
 > End-to-end data engineering platform for live and historical Citi Bike data using **Airflow, AWS S3, Databricks, Spark, Delta Lake, dbt, Docker, and CI/CD**.
 
 <p align="center">
-  <b>Live API → Airflow → S3 → Databricks → Delta Lake → dbt → Analytics</b>
+  <b>Airflow orchestrates · S3 stores · Databricks processes · dbt models</b>
 </p>
 
 ---
@@ -11,37 +11,60 @@
 ## 🏗️ Architecture
 
 ```mermaid
-flowchart LR
-    A["🚲 Citi Bike API"] --> B["🌬️ Apache Airflow"]
-    B --> C[("☁️ AWS S3<br/>Raw Data Lake")]
-    C --> D["⚡ Databricks<br/>Auto Loader"]
-    D --> E[("🥉 Bronze<br/>Delta Lake")]
-    E --> F[("🥈 Silver<br/>Clean + MERGE")]
-    F --> G["🔧 dbt"]
-    G --> H[("🥇 Gold<br/>Analytics Models")]
+flowchart TB
 
-    B -->|"Trigger Job"| D
-    I["GitHub Actions"] -->|"CI/CD"| D
+    subgraph CONTROL["Control & Orchestration"]
+        AF["🌬️ Apache Airflow<br/>Schedule · Dependencies · Retry · Trigger"]
+        CI["🔄 GitHub Actions<br/>CI/CD"]
+    end
+
+    subgraph DATA["Data Platform"]
+        API["🚲 Citi Bike GBFS API"]
+        S3[("☁️ AWS S3<br/>Raw Data Lake")]
+        AL["⚡ Databricks Auto Loader"]
+        B[("🥉 Bronze<br/>Delta Lake")]
+        S[("🥈 Silver<br/>Clean · Deduplicate · MERGE")]
+        DBT["🔧 dbt"]
+        G[("🥇 Gold<br/>Analytics Models")]
+    end
+
+    AF -->|"Fetch live snapshots"| API
+    API -->|"JSON response"| AF
+    AF -->|"Write timestamped raw files"| S3
+
+    S3 --> AL
+    AL --> B
+    B --> S
+    S --> DBT
+    DBT --> G
+
+    AF -->|"Trigger Databricks Job"| AL
+    CI -->|"Validate & Deploy<br/>Databricks Asset Bundles"| AL
 ```
 
 ### What the pipeline does
 
 ```text
-Live Citi Bike API
-       │
-       ▼
-Airflow captures station snapshots
-       │
-       ▼
-Timestamped JSON → AWS S3
-       │
-       ▼
+                Apache Airflow
+          orchestration / scheduling
+              /              \
+             /                \
+            ▼                  ▼
+Citi Bike GBFS API        Trigger Databricks
+        │
+        ▼
+Timestamped JSON
+        │
+        ▼
+AWS S3 Raw Layer
+        │
+        ▼
 Databricks Auto Loader
-       │
-       ▼
+        │
+        ▼
 Bronze → Silver → dbt Gold
-       │
-       ▼
+        │
+        ▼
 Analytics-ready data
 ```
 
@@ -129,12 +152,16 @@ Pipeline continues
 
 ### Cross-platform orchestration
 
-Airflow coordinates systems outside Databricks:
+Airflow coordinates ingestion and Databricks execution:
 
 ```mermaid
 flowchart LR
-    A["ingest_station_status"] --> C["Trigger Databricks Job"]
-    B["ingest_station_information"] --> C
+    A["ingest_station_status"]
+    B["ingest_station_information"]
+    C["Trigger Databricks Job"]
+
+    A --> C
+    B --> C
 ```
 
 The two API ingestion tasks run in parallel. Databricks starts only after both succeed.
@@ -232,7 +259,9 @@ Successful end-to-end recovery
 
 The final pipeline successfully ran:
 
-**Citi Bike API → Airflow → S3 → Databricks → Bronze → Silver → dbt Gold**
+**Citi Bike API → S3 → Databricks → Bronze → Silver → dbt Gold**
+
+with **Airflow orchestrating ingestion, dependencies, scheduling, and Databricks execution**.
 
 ---
 
@@ -271,8 +300,7 @@ citibike-data-platform/
 A successful run was validated using production data lineage:
 
 ```text
-Airflow Snapshot
-2026-09-23 00:26:30 PDT
+Airflow captures live snapshot
         ↓
 S3
 station_status_20260923T072630Z.json
@@ -280,39 +308,25 @@ station_status_20260923T072630Z.json
 Databricks Auto Loader
         ↓
 Bronze ingestion
-2026-09-23 00:27:02 PDT
         ↓
 Silver + Gold
+        ↓
+Databricks Job SUCCESS
         ↓
 Airflow DAG SUCCESS
 ```
 
 ---
 
-## 🚀 Run Airflow Locally
+## 🐳 Reproducibility
 
-```bash
-cd airflow
-docker compose up -d
-```
-
-Open:
-
-```text
-http://localhost:8080
-```
-
-Stop the environment:
-
-```bash
-docker compose down
-```
+The Airflow environment is fully containerized with Docker Compose, allowing the orchestration stack and project dependencies to be reproduced locally.
 
 ---
 
 ## 👋 About Me
 
-I'm **Tom**, a Statistics student at the **University of British Columbia** focused on **Data Engineering and Data Analytics**.
+I'm **Huaxi**, a Statistics student at the **University of British Columbia** focused on **Data Engineering and Data Analytics**.
 
 I enjoy building data systems that go beyond standalone notebooks — combining ingestion, distributed processing, orchestration, cloud infrastructure, analytics modeling, and CI/CD into complete end-to-end platforms.
 
