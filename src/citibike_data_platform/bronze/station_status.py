@@ -67,6 +67,7 @@ df_raw = (
     .format("cloudFiles")
     .option("cloudFiles.format", "json")
     .option("cloudFiles.schemaLocation", SCHEMA_PATH)
+    .option("cloundFiles.schemaEvolutionMode", "rescue")
     .option("cloudFiles.inferColumnTypes", "true")
     .option("multiLine", "true")
     .load(SOURCE_PATH)
