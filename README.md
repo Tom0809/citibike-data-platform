@@ -1,6 +1,6 @@
 # 🚲 Citi Bike Data Platform
 
-> End-to-end data engineering platform for live and historical Citi Bike data using **Airflow, AWS S3, Databricks, Spark, Delta Lake, dbt, Docker, and CI/CD**.
+> End-to-end data engineering platform for live and historical Citi Bike data using **Apache Airflow, AWS S3, Databricks, Spark, Delta Lake, dbt, Docker, and GitHub Actions**.
 
 <p align="center">
   <b>Airflow orchestrates · S3 stores · Databricks processes · dbt models</b>
@@ -11,82 +11,48 @@
 ## 🏗️ Architecture
 
 ```mermaid
-flowchart TB
+flowchart LR
 
-    subgraph CONTROL["⚙️ Orchestration & Deployment"]
-        AF["🌬️ Apache Airflow<br/>Live Ingestion · Scheduling · Dependencies"]
-        GHA["🔄 GitHub Actions"]
-        DAB["📦 Databricks Asset Bundles<br/>Dev / Prod"]
-        GHA -->|"CI/CD"| DAB
-    end
+    API["🚲 Citi Bike<br/>Live GBFS API"]
+    HIST["📁 Historical<br/>Trip Data"]
+    S3[("☁️ AWS S3<br/>Raw Lake")]
+    DBX["⚡ Databricks<br/>Auto Loader + PySpark"]
+    B[("🥉 Bronze")]
+    S[("🥈 Silver")]
+    DBT["🔧 dbt"]
+    G[("🥇 Gold")]
 
-    subgraph SOURCES["📥 Sources"]
-        LIVE["🚲 Citi Bike<br/>Live GBFS API"]
-        HIST["📁 Historical<br/>Monthly Trip Data"]
-    end
-
-    subgraph PLATFORM["☁️ Lakehouse Platform"]
-        direction LR
-        S3[("AWS S3<br/>Raw Data Lake")]
-        AUTO["⚡ Databricks<br/>Auto Loader"]
-        BRONZE[("🥉 Bronze<br/>Delta")]
-        SILVER[("🥈 Silver<br/>Clean + MERGE")]
-        DBT["🔧 dbt"]
-        GOLD[("🥇 Gold<br/>Analytics")]
-
-        S3 --> AUTO --> BRONZE --> SILVER --> DBT --> GOLD
-    end
-
-    LIVE --> S3
+    API --> S3
     HIST --> S3
+    S3 --> DBX --> B --> S --> DBT --> G
 
-    AF -. "Ingest live snapshots" .-> LIVE
-    AF -. "Trigger processing" .-> AUTO
-    DAB -. "Deploy Jobs & code" .-> AUTO
-```
+    AF["🌬️ Airflow<br/>Orchestration"]
+    CICD["🔄 GitHub Actions<br/>CI/CD"]
+    DAB["📦 Asset Bundles<br/>Dev / Prod"]
 
-### What the pipeline does
+    AF -. "Ingest live snapshots" .-> API
+    AF -. "Trigger Databricks Job" .-> DBX
 
-```text
-                Apache Airflow
-          orchestration / scheduling
-              /              \
-             /                \
-            ▼                  ▼
-Citi Bike GBFS API        Trigger Databricks
-        │
-        ▼
-Timestamped JSON
-        │
-        ▼
-AWS S3 Raw Layer
-        │
-        ▼
-Databricks Auto Loader
-        │
-        ▼
-Bronze → Silver → dbt Gold
-        │
-        ▼
-Analytics-ready data
+    CICD --> DAB
+    DAB -. "Deploy Jobs & code" .-> DBX
 ```
 
 ---
 
 ## ⚙️ Tech Stack
 
-| | Technology |
+| Layer | Technology |
 |---|---|
-| **Orchestration** | Apache Airflow |
-| **Cloud Storage** | AWS S3 |
-| **Data Platform** | Databricks |
-| **Processing** | PySpark / Apache Spark |
-| **Lakehouse** | Delta Lake |
-| **Incremental Ingestion** | Databricks Auto Loader |
-| **Analytics Engineering** | dbt |
-| **Containerization** | Docker |
-| **Deployment** | Databricks Asset Bundles |
-| **CI/CD** | GitHub Actions |
+| Orchestration | Apache Airflow |
+| Storage | AWS S3 |
+| Data Platform | Databricks |
+| Processing | PySpark / Apache Spark |
+| Lakehouse | Delta Lake |
+| Incremental Ingestion | Databricks Auto Loader |
+| Analytics Engineering | dbt |
+| Containerization | Docker |
+| Deployment | Databricks Asset Bundles |
+| CI/CD | GitHub Actions |
 
 ---
 
@@ -94,84 +60,49 @@ Analytics-ready data
 
 ### Incremental ingestion
 
-Auto Loader processes only newly arrived files instead of rescanning the full data lake.
+Databricks Auto Loader processes only newly arrived files instead of rescanning the full raw data lake.
 
 ```text
-New API Snapshot
-      ↓
-S3 Raw
-      ↓
+New Snapshot
+    ↓
+AWS S3
+    ↓
 Auto Loader
-      ↓
+    ↓
 Checkpoint
-      ↓
+    ↓
 Only New Files Processed
 ```
 
-### Reliable Delta upserts
+### Delta MERGE upserts
 
-Silver station data is maintained using **Delta MERGE**:
+Silver station data is maintained using Delta Lake `MERGE`.
 
 ```text
 Latest Station Records
-        │
-        ▼
+        ↓
      Delta MERGE
       /       \
    UPDATE     INSERT
 ```
 
-This keeps the Silver layer current without blindly appending duplicate records.
-
-### Schema drift protection
-
-During testing, the upstream Citi Bike API introduced new fields and caused the streaming pipeline to fail.
-
-The pipeline was hardened with:
-
-```python
-.option("cloudFiles.schemaEvolutionMode", "rescue")
-```
-
-and:
-
-```python
-.option("mergeSchema", "true")
-```
-
-Result:
-
-```text
-Upstream Schema Change
-        ↓
-Auto Loader detects new fields
-        ↓
-Unknown fields rescued
-        ↓
-Delta schema evolves
-        ↓
-Pipeline continues
-```
+This keeps the current station state up to date without blindly appending duplicates.
 
 ### Cross-platform orchestration
 
-Airflow coordinates ingestion and Databricks execution:
+Airflow manages ingestion, dependencies, retries, scheduling, and Databricks job triggering.
 
 ```mermaid
 flowchart LR
-    A["ingest_station_status"]
-    B["ingest_station_information"]
-    C["Trigger Databricks Job"]
-
-    A --> C
-    B --> C
+    A["ingest_station_status"] --> C["Trigger Databricks Job"]
+    B["ingest_station_information"] --> C
 ```
 
-The two API ingestion tasks run in parallel. Databricks starts only after both succeed.
+The two live ingestion tasks run in parallel. Databricks starts only after both succeed.
 
 ### Dev / Prod deployment
 
-The same codebase deploys into separate environments:
+The same codebase deploys into isolated environments:
 
 ```text
 Development → citibike_dev
@@ -194,7 +125,7 @@ flowchart LR
     F --> G["Databricks Prod"]
 ```
 
-This replaces manual production Job configuration with version-controlled deployment.
+This replaces manual production job configuration with version-controlled deployment.
 
 ---
 
@@ -222,49 +153,99 @@ Monthly Citi Bike Trips
 
 ---
 
+## 🧩 Engineering Decisions & Challenges
+
+### 1. Schema Drift & Pipeline Resilience
+
+The live Citi Bike API introduced previously unseen fields, causing the original Auto Loader / Delta pipeline to fail.
+
+The Bronze layer was hardened using:
+
+```python
+.option("cloudFiles.schemaEvolutionMode", "rescue")
+.option("mergeSchema", "true")
+```
+
+This allows unexpected upstream fields to be preserved while keeping ingestion resilient.
+
+### 2. Station ID Normalization & Entity Resolution
+
+Historical data contained inconsistent station identifiers.
+
+Examples included malformed IDs such as:
+
+```text
+5017.01_
+```
+
+as well as different IDs such as:
+
+```text
+5017.03
+5017.04
+```
+
+that were later identified as the same physical station.
+
+Instead of hard-coding corrections inside SQL models, I created a **dbt seed mapping table** to maintain canonical station IDs.
+
+```text
+Raw Station IDs
+      ↓
+dbt Seed Mapping
+      ↓
+Canonical Station ID
+```
+
+This keeps reference-data corrections explicit, reusable, version-controlled, and easy to maintain.
+
+---
+
 ## 🛡️ Reliability
 
-The project includes:
+The pipeline includes:
 
 - Auto Loader checkpoints
-- Schema tracking
-- Schema rescue
+- Schema tracking and rescue
 - Delta schema evolution
 - Delta MERGE upserts
 - Airflow dependency management
 - Databricks task retries
 - `max_active_runs=1`
-- Raw snapshot history
+- Timestamped raw snapshots
 - Source file lineage
 - Separate dev / prod environments
 
 ---
 
-## 🧪 Real Engineering Problems Solved
+## ✅ End-to-End Validation
 
-This project was tested against real integration failures rather than only happy-path examples.
+The full pipeline was successfully validated:
 
 ```text
-S3 authorization issue
-        ↓
-Databricks authentication expiration
-        ↓
-API schema drift
-        ↓
-Auto Loader failure
-        ↓
-Delta metadata mismatch
-        ↓
-Airflow / Databricks retry debugging
-        ↓
-Successful end-to-end recovery
+Citi Bike API
+      ↓
+Airflow
+      ↓
+AWS S3
+      ↓
+Databricks Auto Loader
+      ↓
+Bronze
+      ↓
+Silver
+      ↓
+dbt Gold
+      ↓
+SUCCESS
 ```
 
-The final pipeline successfully ran:
+Production records were traced back to their corresponding S3 source files using ingestion metadata such as:
 
-**Citi Bike API → S3 → Databricks → Bronze → Silver → dbt Gold**
-
-with **Airflow orchestrating ingestion, dependencies, scheduling, and Databricks execution**.
+```text
+_source_file
+_ingested_at
+```
 
 ---
 
@@ -293,37 +274,17 @@ citibike-data-platform/
 │   ├── ci.yml
 │   └── cd.yml
 │
-└── databricks.yml
-```
-
----
-
-## ✅ Verified End-to-End
-
-A successful run was validated using production data lineage:
-
-```text
-Airflow captures live snapshot
-        ↓
-S3
-station_status_20260923T072630Z.json
-        ↓
-Databricks Auto Loader
-        ↓
-Bronze ingestion
-        ↓
-Silver + Gold
-        ↓
-Databricks Job SUCCESS
-        ↓
-Airflow DAG SUCCESS
+├── databricks.yml
+└── README.md
 ```
 
 ---
 
 ## 🐳 Reproducibility
 
-The Airflow environment is fully containerized with Docker Compose, allowing the orchestration stack and project dependencies to be reproduced locally.
+The Airflow environment is fully containerized with Docker Compose, making the orchestration stack and project dependencies reproducible across local environments.
+
+Secrets, AWS credentials, Databricks tokens, Airflow logs, and generated local configuration files are excluded from version control.
 
 ---
 
@@ -331,7 +292,7 @@ The Airflow environment is fully containerized with Docker Compose, allowing the
 
 I'm **Huaxi**, a Statistics student at the **University of British Columbia** focused on **Data Engineering and Data Analytics**.
 
-I enjoy building data systems that go beyond standalone notebooks — combining ingestion, distributed processing, orchestration, cloud infrastructure, analytics modeling, and CI/CD into complete end-to-end platforms.
+I enjoy building data systems that go beyond standalone notebooks by combining ingestion, distributed processing, orchestration, cloud infrastructure, analytics modeling, and CI/CD into complete end-to-end platforms.
 
 **Interests:** Data Engineering · Analytics · Spark · Cloud Data Platforms · AI Data Infrastructure
 
