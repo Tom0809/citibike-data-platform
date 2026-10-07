@@ -34,7 +34,7 @@ flowchart LR
     AF -. "Trigger Databricks Job" .-> DBX
 
     CICD --> DAB
-    DAB -. "Deploy Jobs & code" .-> DBX
+    DAB -. "Deploy Jobs and code" .-> DBX
 ```
 
 ---
